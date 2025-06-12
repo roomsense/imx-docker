@@ -29,36 +29,74 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         
+      - name: Debug repository structure
+        run: |
+          echo "=== Repository Structure ==="
+          find . -type f -name "*.sh" -o -name "Dockerfile*" -o -name "*.yml" | head -20
+          echo "=== Working Directory ==="
+          pwd
+          ls -la
+          echo "=== Input Values ==="
+          echo "Ubuntu version: '${{ github.event.inputs.ubuntu_version }}'"
+          echo "IMX release: '${{ github.event.inputs.imx_release }}'"
+          
       - name: Validate inputs
         id: validate
         run: |
-          # Validate Ubuntu Dockerfile exists
+          echo "🔍 Starting validation..."
+          VALIDATION_FAILED=false
+          
+          # Check Ubuntu Dockerfile
           if [ ! -f "${{ github.event.inputs.ubuntu_version }}" ]; then
-            echo "Error: Dockerfile ${{ github.event.inputs.ubuntu_version }} not found"
-            exit 1
+            echo "❌ Error: Dockerfile ${{ github.event.inputs.ubuntu_version }} not found"
+            echo "Available Dockerfiles:"
+            ls -la Dockerfile* 2>/dev/null || echo "No Dockerfiles found"
+            VALIDATION_FAILED=true
+          else
+            echo "✅ Found Dockerfile: ${{ github.event.inputs.ubuntu_version }}"
           fi
           
-          # Validate IMX release directory structure
+          # Check IMX release directory
           if [ ! -d "${{ github.event.inputs.imx_release }}" ]; then
-            echo "Error: IMX release directory ${{ github.event.inputs.imx_release }} not found"
-            exit 1
+            echo "❌ Error: IMX release directory ${{ github.event.inputs.imx_release }} not found"
+            echo "Available directories:"
+            ls -la | grep "^d" || echo "No directories found"
+            VALIDATION_FAILED=true
+          else
+            echo "✅ Found IMX release directory: ${{ github.event.inputs.imx_release }}"
           fi
           
-          # Validate yocto-build.sh exists in release directory
+          # Check yocto-build.sh in release directory
           if [ ! -f "${{ github.event.inputs.imx_release }}/yocto-build.sh" ]; then
-            echo "Error: yocto-build.sh not found in ${{ github.event.inputs.imx_release }}/"
-            exit 1
+            echo "❌ Error: yocto-build.sh not found in ${{ github.event.inputs.imx_release }}/"
+            if [ -d "${{ github.event.inputs.imx_release }}" ]; then
+              echo "Contents of ${{ github.event.inputs.imx_release }}:"
+              ls -la "${{ github.event.inputs.imx_release }}/" || echo "Cannot list directory contents"
+            fi
+            VALIDATION_FAILED=true
+          else
+            echo "✅ Found yocto-build.sh in ${{ github.event.inputs.imx_release }}/"
           fi
           
-          # Validate required scripts exist
+          # Check required scripts
           if [ ! -f "docker-build.sh" ]; then
-            echo "Error: docker-build.sh not found"
-            exit 1
+            echo "❌ Error: docker-build.sh not found"
+            VALIDATION_FAILED=true
+          else
+            echo "✅ Found docker-build.sh"
           fi
           
           if [ ! -f "docker-run.sh" ]; then
-            echo "Error: docker-run.sh not found"
-            exit 1
+            echo "❌ Error: docker-run.sh not found"
+            VALIDATION_FAILED=true
+          else
+            echo "✅ Found docker-run.sh"
+          fi
+          
+          # Final validation check
+          if [ "$VALIDATION_FAILED" = "true" ]; then
+            echo "💥 Validation failed - stopping workflow"
+            exit 100
           fi
           
           echo "ubuntu_version=${{ github.event.inputs.ubuntu_version }}" >> $GITHUB_OUTPUT
