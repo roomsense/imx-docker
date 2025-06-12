@@ -124,70 +124,11 @@ jobs:
           echo "🔧 IMX Release: ${{ needs.validate-inputs.outputs.imx_release }}"
           echo "📅 Build started at: $(date)"
           
-      - name: Free up disk space
+      - name: Check disk space
         run: |
-          echo "🧹 Freeing up disk space for Yocto build..."
-          echo "📊 Disk space before cleanup:"
+          echo "📊 Available disk space:"
           df -h
-          
-          # Update package database
-          sudo apt-get update -qq || true
-          
-          # Remove packages individually to handle missing packages gracefully
-          echo "Removing unnecessary packages (ignoring missing packages)..."
-          
-          # Function to safely remove packages
-          safe_remove() {
-            for package in "$@"; do
-              if dpkg -l | grep -q "^ii.*$package"; then
-                echo "Removing $package..."
-                sudo apt-get remove -y --purge "$package" 2>/dev/null || echo "Failed to remove $package"
-              else
-                echo "Package $package not installed, skipping..."
-              fi
-            done
-          }
-          
-          # Remove packages by category
-          safe_remove azure-cli google-cloud-sdk google-chrome-stable firefox powershell mono-devel snapd
-          
-          # Remove dotnet packages (if any exist)
-          sudo apt-get remove -y --purge 'dotnet-*' 2>/dev/null || echo "No dotnet packages found"
-          
-          # Remove llvm packages (if any exist) 
-          sudo apt-get remove -y --purge 'llvm-*' 2>/dev/null || echo "No llvm packages found"
-          
-          # Remove php packages (if any exist)
-          sudo apt-get remove -y --purge 'php*' 2>/dev/null || echo "No php packages found"
-          
-          # Remove mongodb packages (if any exist)
-          sudo apt-get remove -y --purge 'mongodb-*' 2>/dev/null || echo "No mongodb packages found"
-          
-          # Remove mysql packages (if any exist)
-          sudo apt-get remove -y --purge 'mysql-*' 2>/dev/null || echo "No mysql packages found"
-          
-          # Clean up package cache and orphaned packages
-          echo "Cleaning up package cache..."
-          sudo apt-get autoremove -y || true
-          sudo apt-get autoclean || true
-          sudo apt-get clean || true
-          
-          # Remove large directories if they exist
-          echo "Removing large directories..."
-          sudo rm -rf /usr/share/dotnet 2>/dev/null || true
-          sudo rm -rf /usr/local/lib/android 2>/dev/null || true
-          sudo rm -rf /opt/ghc 2>/dev/null || true
-          sudo rm -rf /usr/local/.ghcup 2>/dev/null || true
-          sudo rm -rf /usr/share/swift 2>/dev/null || true
-          
-          # Clear various caches
-          echo "Clearing caches..."
-          sudo rm -rf /tmp/* 2>/dev/null || true
-          sudo rm -rf /var/cache/apt/archives/* 2>/dev/null || true
-          
-          echo "📊 Disk space after cleanup:"
-          df -h
-          echo "✅ Disk cleanup completed successfully"
+          echo "✅ Skipping cleanup - proceeding with available space"
           
       - name: Build Docker image
         id: docker_build
