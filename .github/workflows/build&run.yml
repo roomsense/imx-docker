@@ -126,11 +126,50 @@ jobs:
           
       - name: Free up disk space
         run: |
-          # Remove unnecessary packages to free up space for Yocto build
-          sudo apt-get remove -y '^dotnet-.*' '^llvm-.*' 'php.*' '^mongodb-.*' '^mysql-.*' azure-cli google-cloud-sdk hhvm google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri
-          sudo apt-get autoremove -y
-          sudo apt-get clean
+          echo "🧹 Freeing up disk space for Yocto build..."
+          echo "📊 Disk space before cleanup:"
           df -h
+          
+          # Remove unnecessary packages safely
+          echo "Removing unnecessary packages..."
+          sudo apt-get update || true
+          
+          # Remove packages that are commonly present (with error handling)
+          sudo apt-get remove -y --purge \
+            '^dotnet-.*' \
+            '^llvm-.*' \
+            'php.*' \
+            '^mongodb-.*' \
+            '^mysql-.*' \
+            azure-cli \
+            google-cloud-sdk \
+            hhvm \
+            google-chrome-stable \
+            firefox \
+            powershell \
+            mono-devel \
+            libgl1-mesa-dri \
+            snapd \
+            || echo "Some packages were not found or could not be removed (this is normal)"
+          
+          # Clean up package cache and orphaned packages
+          sudo apt-get autoremove -y || true
+          sudo apt-get autoclean || true
+          sudo apt-get clean || true
+          
+          # Remove additional large directories if they exist
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /usr/local/.ghcup || true
+          
+          # Clear various caches
+          sudo rm -rf /tmp/* || true
+          sudo rm -rf /var/cache/apt/archives/* || true
+          
+          echo "📊 Disk space after cleanup:"
+          df -h
+          echo "✅ Disk cleanup completed"
           
       - name: Build Docker image
         id: docker_build
