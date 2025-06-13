@@ -65,7 +65,7 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
-    needs: validate-inputs  # Add missing dependency
+    needs: validate-inputs
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -95,7 +95,7 @@ jobs:
                       /usr/local/lib/node_modules 2>/dev/null || true
           
           # Remove specific packages if installed (simplified approach)
-          packages_to_remove="mysql-server* postgresql* mongodb* docker-ce* containerd*"
+          packages_to_remove="mysql-server* postgresql* mongodb*"
           for pkg in $packages_to_remove; do
             if dpkg -l | grep -q "$pkg"; then
               echo "Removing $pkg"
@@ -109,39 +109,46 @@ jobs:
           echo "📊 After cleanup:"
           df -h
           
-      - name: Start Docker service
+      - name: Verify Docker daemon
         run: |
-          echo "🐳 Starting Docker service..."
-          sudo systemctl start docker
-          sudo systemctl enable docker
+          echo "🐳 Checking Docker daemon status..."
+          
+          # Check if Docker daemon is running
+          if ! sudo systemctl is-active --quiet docker; then
+            echo "Starting Docker daemon..."
+            sudo systemctl start docker
+            sudo systemctl enable docker
+          fi
           
           # Wait for Docker to be ready
           echo "⏳ Waiting for Docker daemon to be ready..."
-          timeout 30 bash -c 'until docker info > /dev/null 2>&1; do sleep 1; done'
+          timeout 30 bash -c 'until docker info > /dev/null 2>&1; do echo "Waiting for Docker..."; sleep 2; done'
           
           # Verify Docker is working
           echo "✅ Docker status:"
           docker --version
           docker info
+          sudo systemctl status docker --no-pager -l
           
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          # Use default driver to avoid connection issues
-          driver: docker-container
-          install: true
-        
       - name: Build Docker image
         run: |
-          echo "🐳 Building Docker image..."
+          echo "🐳 Building Docker image with standard Docker build..."
           echo "Using Dockerfile: ${{ needs.validate-inputs.outputs.ubuntu_version }}"
           echo "IMX Release: ${{ needs.validate-inputs.outputs.imx_release }}"
           
+          # Use regular docker build instead of buildx to avoid daemon connection issues
           if ! docker build \
             -f "${{ needs.validate-inputs.outputs.ubuntu_version }}" \
             --build-arg IMX_RELEASE="${{ needs.validate-inputs.outputs.imx_release }}" \
+            --progress=plain \
             -t imx-yocto:latest .; then
             echo "❌ Docker build failed"
+            
+            # Debug information
+            echo "🔍 Debug information:"
+            docker ps -a
+            sudo systemctl status docker --no-pager -l
+            
             exit 1
           fi
           
