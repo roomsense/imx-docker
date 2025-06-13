@@ -16,6 +16,22 @@ on:
         description: 'IMX release to build'
         required: true
         default: 'imx-6.1.22-2.0.0'
+      machine:
+        description: 'Target machine/board'
+        required: true
+        default: 'imx8mp-evk'
+        type: choice
+        options:
+          - 'imx8mp-evk'
+          - 'imx8mm-evk'
+          - 'imx8mn-evk'
+          - 'imx8mq-evk'
+          - 'imx93-11x11-lpddr4x-evk'
+          - 'imx93-14x14-lpddr4x-evk'
+          - 'imx8ulp-evk'
+          - 'imx8dx-mek'
+          - 'imx8qm-mek'
+          - 'imx8qxp-mek'
 
 jobs:
   validate-inputs:
@@ -23,6 +39,7 @@ jobs:
     outputs:
       ubuntu_version: ${{ steps.validate.outputs.ubuntu_version }}
       imx_release: ${{ steps.validate.outputs.imx_release }}
+      machine: ${{ steps.validate.outputs.machine }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -34,6 +51,7 @@ jobs:
           echo "=== Input Values ==="
           echo "Ubuntu version: '${{ github.event.inputs.ubuntu_version }}'"
           echo "IMX release: '${{ github.event.inputs.imx_release }}'"
+          echo "Machine: '${{ github.event.inputs.machine }}'"
           
       - name: Validate inputs
         id: validate
@@ -51,6 +69,14 @@ jobs:
             echo "✅ Found Dockerfile: ${{ github.event.inputs.ubuntu_version }}"
           fi
           
+          # Check if env.sh exists
+          if [ ! -f "env.sh" ]; then
+            echo "❌ Error: env.sh file not found"
+            VALIDATION_FAILED=true
+          else
+            echo "✅ Found env.sh file"
+          fi
+          
           # Final validation check
           if [ "$VALIDATION_FAILED" = "true" ]; then
             echo "💥 Validation failed - stopping workflow"
@@ -60,6 +86,7 @@ jobs:
           # Set outputs for next job
           echo "ubuntu_version=${{ github.event.inputs.ubuntu_version }}" >> $GITHUB_OUTPUT
           echo "imx_release=${{ github.event.inputs.imx_release }}" >> $GITHUB_OUTPUT
+          echo "machine=${{ github.event.inputs.machine }}" >> $GITHUB_OUTPUT
           
           echo "✅ All inputs validated successfully"
 
@@ -69,6 +96,50 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        
+      - name: Update env.sh with MACHINE variable
+        run: |
+          echo "🔧 Updating env.sh with MACHINE variable..."
+          
+          # Check if env.sh exists
+          if [ ! -f "env.sh" ]; then
+            echo "❌ Error: env.sh file not found"
+            exit 1
+          fi
+          
+          # Display current content around line 16
+          echo "📄 Current env.sh content around line 16:"
+          sed -n '10,20p' env.sh || echo "File has fewer than 20 lines"
+          
+          # Create backup
+          cp env.sh env.sh.backup
+          echo "📋 Created backup: env.sh.backup"
+          
+          # Check if line 16 exists
+          LINE_COUNT=$(wc -l < env.sh)
+          if [ $LINE_COUNT -lt 16 ]; then
+            echo "📝 File has only $LINE_COUNT lines, adding empty lines to reach line 16..."
+            while [ $(wc -l < env.sh) -lt 15 ]; do
+              echo "" >> env.sh
+            done
+            echo "MACHINE=${{ needs.validate-inputs.outputs.machine }}" >> env.sh
+          else
+            # Replace or insert at line 16
+            if grep -q "^MACHINE=" env.sh; then
+              echo "🔄 Updating existing MACHINE variable..."
+              sed -i "s/^MACHINE=.*/MACHINE=${{ needs.validate-inputs.outputs.machine }}/" env.sh
+            else
+              echo "➕ Adding MACHINE variable at line 16..."
+              sed -i "16i\\MACHINE=${{ needs.validate-inputs.outputs.machine }}" env.sh
+            fi
+          fi
+          
+          # Verify the change
+          echo "✅ Updated env.sh content around line 16:"
+          sed -n '10,20p' env.sh || echo "File has fewer than 20 lines"
+          
+          # Show what was added/changed
+          echo "🎯 MACHINE variable set to: ${{ needs.validate-inputs.outputs.machine }}"
         
       - name: Free up disk space
         run: |
@@ -135,6 +206,7 @@ jobs:
           echo "🐳 Building Docker image with standard Docker build..."
           echo "Using Dockerfile: ${{ needs.validate-inputs.outputs.ubuntu_version }}"
           echo "IMX Release: ${{ needs.validate-inputs.outputs.imx_release }}"
+          echo "Machine: ${{ needs.validate-inputs.outputs.machine }}"
           
           # Set build arguments - FIXED: Use the correct argument names
           BUILD_USER="yocto"
@@ -146,6 +218,7 @@ jobs:
           echo "  host_uid: $BUILD_UID"
           echo "  host_gid: $BUILD_GID"
           echo "  IMX_RELEASE: ${{ needs.validate-inputs.outputs.imx_release }}"
+          echo "  MACHINE: ${{ needs.validate-inputs.outputs.machine }}"
           
           # Use regular docker build with correct argument names
           if ! docker build \
@@ -154,6 +227,7 @@ jobs:
             --build-arg host_uid="$BUILD_UID" \
             --build-arg host_gid="$BUILD_GID" \
             --build-arg IMX_RELEASE="${{ needs.validate-inputs.outputs.imx_release }}" \
+            --build-arg MACHINE="${{ needs.validate-inputs.outputs.machine }}" \
             --progress=plain \
             -t imx-yocto:latest .; then
             echo "❌ Docker build failed"
@@ -182,7 +256,7 @@ jobs:
         run: |
           # Create tags
           IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/imx-yocto"
-          IMAGE_TAG="${{ needs.validate-inputs.outputs.imx_release }}-${{ needs.validate-inputs.outputs.ubuntu_version }}"
+          IMAGE_TAG="${{ needs.validate-inputs.outputs.imx_release }}-${{ needs.validate-inputs.outputs.ubuntu_version }}-${{ needs.validate-inputs.outputs.machine }}"
           
           echo "🏷️ Tagging image..."
           docker tag imx-yocto:latest "$IMAGE_NAME:$IMAGE_TAG"
@@ -200,4 +274,5 @@ jobs:
         run: |
           echo "🎉 Build completed successfully!"
           echo "📦 Docker image: imx-yocto:latest"
+          echo "🎯 Machine: ${{ needs.validate-inputs.outputs.machine }}"
           echo "⏱️ Build finished at: $(date)"
