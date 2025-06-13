@@ -18,6 +18,21 @@ on:
         required: true
         default: 'imx-6.1.22-2.0.0'
         type: string
+      runner_size:
+        description: 'BuildJet runner size'
+        required: true
+        default: '8vcpu-32gb'
+        type: choice
+        options:
+          - '4vcpu-16gb'
+          - '8vcpu-32gb'
+          - '16vcpu-64gb'
+          - '32vcpu-128gb'
+
+env:
+  # BuildJet optimizations
+  DOCKER_BUILDKIT: 1
+  BUILDKIT_PROGRESS: plain
 
 jobs:
   validate-inputs:
@@ -25,6 +40,7 @@ jobs:
     outputs:
       ubuntu_version: ${{ steps.validate.outputs.ubuntu_version }}
       imx_release: ${{ steps.validate.outputs.imx_release }}
+      runner_size: ${{ steps.validate.outputs.runner_size }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -39,6 +55,11 @@ jobs:
           echo "=== Input Values ==="
           echo "Ubuntu version: '${{ github.event.inputs.ubuntu_version }}'"
           echo "IMX release: '${{ github.event.inputs.imx_release }}'"
+          echo "Runner size: '${{ github.event.inputs.runner_size }}'"
+          echo "=== System Info ==="
+          nproc
+          free -h
+          df -h
           
       - name: Validate inputs
         id: validate
@@ -86,6 +107,7 @@ jobs:
             echo "✅ Found docker-build.sh"
           fi
           
+          # Check if docker-run.sh exists
           if [ ! -f "docker-run.sh" ]; then
             echo "❌ Error: docker-run.sh not found"
             VALIDATION_FAILED=true
@@ -101,18 +123,32 @@ jobs:
           
           echo "ubuntu_version=${{ github.event.inputs.ubuntu_version }}" >> $GITHUB_OUTPUT
           echo "imx_release=${{ github.event.inputs.imx_release }}" >> $GITHUB_OUTPUT
+          echo "runner_size=${{ github.event.inputs.runner_size }}" >> $GITHUB_OUTPUT
           
           echo "✅ All inputs validated successfully"
 
   build:
-    runs-on: buildjet-4vcpu-ubuntu-2204
+    runs-on: buildjet-${{ needs.validate-inputs.outputs.runner_size }}-ubuntu-2204
     needs: validate-inputs
-    timeout-minutes: 480  # 8 hours timeout for long Yocto builds
+    timeout-minutes: 600  # 10 hours timeout for long Yocto builds on BuildJet
     
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # Use shallow clone for faster checkout
+          fetch-depth: 1
         
+      - name: System information
+        run: |
+          echo "🖥️ BuildJet Runner Information:"
+          echo "Runner: buildjet-${{ needs.validate-inputs.outputs.runner_size }}-ubuntu-2204"
+          echo "CPU cores: $(nproc)"
+          echo "Memory: $(free -h | grep '^Mem:' | awk '{print $2}')"
+          echo "Disk space: $(df -h / | tail -1 | awk '{print $4}' | sed 's/G/ GB/')"
+          echo "Docker version: $(docker --version)"
+          echo "Buildx version: $(docker buildx version)"
+          
       - name: Set up build environment
         run: |
           # Make scripts executable
@@ -122,66 +158,243 @@ jobs:
           # Display build information
           echo "🐳 Building with Ubuntu: ${{ needs.validate-inputs.outputs.ubuntu_version }}"
           echo "🔧 IMX Release: ${{ needs.validate-inputs.outputs.imx_release }}"
+          echo "🏃 Runner Size: ${{ needs.validate-inputs.outputs.runner_size }}"
           echo "📅 Build started at: $(date)"
           
-      - name: Check disk space
-        run: |
-          echo "📊 Available disk space:"
-          df -h
-          echo "✅ Skipping cleanup - proceeding with available space"
+          # Set optimal parallel build jobs based on runner size
+          case "${{ needs.validate-inputs.outputs.runner_size }}" in
+            "4vcpu-16gb")
+              echo "PARALLEL_MAKE=-j4" >> $GITHUB_ENV
+              echo "BB_NUMBER_THREADS=4" >> $GITHUB_ENV
+              ;;
+            "8vcpu-32gb")
+              echo "PARALLEL_MAKE=-j6" >> $GITHUB_ENV
+              echo "BB_NUMBER_THREADS=6" >> $GITHUB_ENV
+              ;;
+            "16vcpu-64gb")
+              echo "PARALLEL_MAKE=-j12" >> $GITHUB_ENV
+              echo "BB_NUMBER_THREADS=12" >> $GITHUB_ENV
+              ;;
+            "32vcpu-128gb")
+              echo "PARALLEL_MAKE=-j24" >> $GITHUB_ENV
+              echo "BB_NUMBER_THREADS=24" >> $GITHUB_ENV
+              ;;
+            *)
+              echo "PARALLEL_MAKE=-j$(nproc)" >> $GITHUB_ENV
+              echo "BB_NUMBER_THREADS=$(nproc)" >> $GITHUB_ENV
+              ;;
+          esac
           
-      - name: Build Docker image
+      - name: Optimize Docker daemon for BuildJet
+        run: |
+          echo "🔧 Optimizing Docker daemon for BuildJet..."
+          
+          # Create Docker daemon config for BuildJet optimization
+          sudo mkdir -p /etc/docker
+          sudo tee /etc/docker/daemon.json > /dev/null <<EOF
+          {
+            "storage-driver": "overlay2",
+            "storage-opts": [
+              "overlay2.override_kernel_check=true"
+            ],
+            "experimental": true,
+            "features": {
+              "buildkit": true
+            },
+            "builder": {
+              "gc": {
+                "enabled": true,
+                "defaultKeepStorage": "20GB"
+              }
+            }
+          }
+          EOF
+          
+          # Restart Docker with new config
+          sudo systemctl restart docker
+          
+          # Wait for Docker to be ready
+          until docker info > /dev/null 2>&1; do
+            echo "Waiting for Docker daemon..."
+            sleep 2
+          done
+          
+          echo "✅ Docker daemon optimized"
+          
+      - name: Check disk space and optimize
+        run: |
+          echo "📊 Initial disk space:"
+          df -h
+          
+          # Clean up unnecessary packages and caches to free space
+          echo "🧹 Cleaning system to free disk space..."
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+          sudo rm -rf /tmp/*
+          
+          # Remove unnecessary Docker images
+          docker system prune -af --volumes || true
+          
+          echo "📊 Available disk space after cleanup:"
+          df -h
+          
+          # Check if we have enough space (at least 50GB recommended for Yocto)
+          AVAILABLE=$(df / | tail -1 | awk '{print $4}')
+          AVAILABLE_GB=$((AVAILABLE / 1024 / 1024))
+          echo "Available space: ${AVAILABLE_GB}GB"
+          
+          if [ $AVAILABLE_GB -lt 30 ]; then
+            echo "⚠️ Warning: Less than 30GB available. Yocto build may fail due to insufficient disk space."
+          fi
+          
+      - name: Set up Docker Buildx for BuildJet
+        run: |
+          echo "🔨 Setting up Docker Buildx for optimal BuildJet performance..."
+          
+          # Create and use a new buildx builder with optimized settings
+          docker buildx create --name buildjet-builder \
+            --driver docker-container \
+            --driver-opt network=host \
+            --use
+          
+          docker buildx inspect --bootstrap
+          echo "✅ Docker Buildx configured for BuildJet"
+          
+      - name: Free up disk space
+        run: |
+          echo "🧹 Freeing up disk space for Yocto build..."
+          echo "📦 Cleaning apt cache"
+          sudo apt-get clean
+          sudo apt-get autoremove -y
+          echo "🗑️ Removing large unused preinstalled components..."
+          sudo rm -rf /usr/share/dotnet \
+                      /usr/local/lib/android \
+                      /opt/ghc \
+                      /opt/hostedtoolcache/go \
+                      /opt/hostedtoolcache/CodeQL \
+                      /opt/hostedtoolcache/Python \
+                      /opt/hostedtoolcache/Ruby \
+                      "$AGENT_TOOLSDIRECTORY" || true
+          echo "📊 Disk space after cleanup:"
+          df -h
+          
+      - name: Build Docker image with BuildJet optimization
         id: docker_build
         run: |
-          echo "🔨 Building Docker image..."
-          if ! ./docker-build.sh "${{ needs.validate-inputs.outputs.ubuntu_version }}"; then
+          echo "🔨 Building Docker image with BuildJet optimizations..."
+          
+          # Export build arguments for parallel compilation
+          export BUILDKIT_INLINE_CACHE=1
+          
+          # Run docker build with buildx for better caching and parallel builds
+          if ! docker buildx build \
+            --file "${{ needs.validate-inputs.outputs.ubuntu_version }}" \
+            --tag yocto-builder:latest \
+            --load \
+            --build-arg PARALLEL_MAKE="$PARALLEL_MAKE" \
+            --build-arg BB_NUMBER_THREADS="$BB_NUMBER_THREADS" \
+            --progress=plain \
+            --cache-from=type=gha \
+            --cache-to=type=gha,mode=max \
+            .; then
             echo "❌ Docker build failed"
             exit 1
           fi
-          echo "✅ Docker image built successfully"
           
-      - name: Run Yocto build
+          echo "✅ Docker image built successfully with BuildJet optimizations"
+          
+          # Show image info
+          docker images yocto-builder:latest
+          
+      - name: Run Yocto build with BuildJet optimization
         id: yocto_build
         env:
           IMX_RELEASE: ${{ needs.validate-inputs.outputs.imx_release }}
+          PARALLEL_MAKE: ${{ env.PARALLEL_MAKE }}
+          BB_NUMBER_THREADS: ${{ env.BB_NUMBER_THREADS }}
         run: |
-          echo "🚀 Starting Yocto build..."
+          echo "🚀 Starting Yocto build with BuildJet optimizations..."
           echo "Build script: ${{ needs.validate-inputs.outputs.imx_release }}/yocto-build.sh"
+          echo "Parallel make jobs: $PARALLEL_MAKE"
+          echo "BitBake threads: $BB_NUMBER_THREADS"
           
+          # Run with optimized settings for BuildJet
           if ! ./docker-run.sh "${{ needs.validate-inputs.outputs.imx_release }}/yocto-build.sh"; then
             echo "❌ Yocto build failed"
+            
+            # Show some debug info before failing
+            echo "🔍 Debug information:"
+            df -h
+            docker ps -a
+            docker logs $(docker ps -aq | head -1) --tail 50 || true
+            
             exit 1
           fi
-          echo "✅ Yocto build completed successfully"
+          echo "✅ Yocto build completed successfully on BuildJet"
           
       - name: Collect build artifacts
         if: always()
         run: |
+          echo "📦 Collecting build artifacts..."
+          
           # Create artifacts directory
           mkdir -p build-artifacts
           
           # Collect build logs (adjust paths as needed)
           find . -name "*.log" -type f -exec cp {} build-artifacts/ \; 2>/dev/null || true
           find . -name "cooker.log*" -type f -exec cp {} build-artifacts/ \; 2>/dev/null || true
+          find . -name "bitbake-cookerdaemon.log*" -type f -exec cp {} build-artifacts/ \; 2>/dev/null || true
           
-          # Collect build summary
+          # Collect Docker logs if available
+          docker logs $(docker ps -aq | head -1) > build-artifacts/docker-build.log 2>&1 || true
+          
+          # Collect build summary with BuildJet specific info
           echo "Build Summary:" > build-artifacts/build-summary.txt
           echo "Ubuntu Version: ${{ needs.validate-inputs.outputs.ubuntu_version }}" >> build-artifacts/build-summary.txt
           echo "IMX Release: ${{ needs.validate-inputs.outputs.imx_release }}" >> build-artifacts/build-summary.txt
+          echo "BuildJet Runner: buildjet-${{ needs.validate-inputs.outputs.runner_size }}-ubuntu-2204" >> build-artifacts/build-summary.txt
+          echo "Parallel Make: ${{ env.PARALLEL_MAKE }}" >> build-artifacts/build-summary.txt
+          echo "BitBake Threads: ${{ env.BB_NUMBER_THREADS }}" >> build-artifacts/build-summary.txt
           echo "Build Date: $(date)" >> build-artifacts/build-summary.txt
           echo "Build Status: ${{ job.status }}" >> build-artifacts/build-summary.txt
+          
+          # Add system info
+          echo "System Info:" >> build-artifacts/build-summary.txt
+          echo "CPU Cores: $(nproc)" >> build-artifacts/build-summary.txt
+          echo "Memory: $(free -h | grep '^Mem:' | awk '{print $2}')" >> build-artifacts/build-summary.txt
+          echo "Final Disk Usage:" >> build-artifacts/build-summary.txt
+          df -h >> build-artifacts/build-summary.txt
+          
+          echo "✅ Build artifacts collected"
           
       - name: Upload build artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: yocto-build-logs-${{ needs.validate-inputs.outputs.imx_release }}
+          name: yocto-build-logs-${{ needs.validate-inputs.outputs.imx_release }}-buildjet-${{ needs.validate-inputs.outputs.runner_size }}
           path: build-artifacts/
           retention-days: 30
+          compression-level: 6
+          
+      - name: Cleanup Docker resources
+        if: always()
+        run: |
+          echo "🧹 Cleaning up Docker resources..."
+          docker system prune -af --volumes || true
+          docker buildx rm buildjet-builder || true
           
       - name: Build completion notification
         if: success()
         run: |
-          echo "🎉 Build completed successfully!"
+          echo "🎉 Build completed successfully on BuildJet!"
+          echo "🏃 Runner: buildjet-${{ needs.validate-inputs.outputs.runner_size }}-ubuntu-2204"
           echo "📦 Artifacts uploaded for IMX release: ${{ needs.validate-inputs.outputs.imx_release }}"
+          echo "⚡ Parallel jobs used: ${{ env.PARALLEL_MAKE }}"
+          echo "🧵 BitBake threads used: ${{ env.BB_NUMBER_THREADS }}"
           echo "⏱️ Build finished at: $(date)"
+          
+          # Final resource usage summary
+          echo "📊 Final resource usage:"
+          echo "CPU: $(nproc) cores"
+          echo "Memory: $(free -h | grep '^Mem:' | awk '{print $3"/"$2}')"
+          echo "Disk: $(df -h / | tail -1 | awk '{print $3"/"$2}')"
