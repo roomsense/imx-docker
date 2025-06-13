@@ -21,7 +21,7 @@ on:
 
 jobs:
   validate-inputs:
-    runs-on: ubuntu-latest
+    runs-on: buildjet-4vcpu-ubuntu-2204
     outputs:
       ubuntu_version: ${{ steps.validate.outputs.ubuntu_version }}
       imx_release: ${{ steps.validate.outputs.imx_release }}
@@ -105,7 +105,7 @@ jobs:
           echo "✅ All inputs validated successfully"
 
   build:
-    runs-on: ubuntu-latest
+    runs-on: buildjet-4vcpu-ubuntu-2204
     needs: validate-inputs
     timeout-minutes: 480  # 8 hours timeout for long Yocto builds
     
