@@ -36,38 +36,38 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-- name: Free up disk space
-  run: |
-    echo "Before cleanup:"
-    df -h
+      - name: Free up disk space
+        run: |
+          echo "Before cleanup:"
+          df -h
 
-    # List of packages to attempt purging
-    packages_to_remove=(
-      hhvm php5 php7.4 php8.2 mysql-server-5.7 google-cloud-sdk
-    )
+          # List of packages to remove if installed and available
+          packages_to_remove=(
+            hhvm php5 php7.4 php8.2 mysql-server-5.7 google-cloud-sdk
+            dotnet-hostfxr-6.0 dotnet-runtime-6.0 dotnet-sdk-6.0
+            dotnet-targeting-pack-6.0 dotnet-templates-6.0
+          )
 
-    for pkg in "${packages_to_remove[@]}"; do
-      # Check if package exists in apt cache
-      if apt-cache show "$pkg" >/dev/null 2>&1; then
-        # Check if package is installed
-        if dpkg -l | grep -q "^ii\s\+$pkg"; then
-          echo "Purging installed package: $pkg"
-          sudo apt-get purge -y "$pkg"
-        else
-          echo "$pkg exists but is not installed"
-        fi
-      else
-        echo "$pkg not found in APT cache, skipping"
-      fi
-    done
+          for pkg in "${packages_to_remove[@]}"; do
+            if apt-cache show "$pkg" >/dev/null 2>&1; then
+              if dpkg -l | grep -q "^ii\s\+$pkg"; then
+                echo "Purging installed package: $pkg"
+                sudo apt-get purge -y "$pkg"
+              else
+                echo "$pkg exists in APT but is not installed"
+              fi
+            else
+              echo "$pkg not found in APT cache, skipping"
+            fi
+          done
 
-    sudo apt-get autoremove -y
-    sudo apt-get clean
+          sudo apt-get autoremove -y
+          sudo apt-get clean
 
-    echo "After cleanup:"
-    df -h
+          echo "After cleanup:"
+          df -h
 
-      - name: Set up Docker
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build Docker image
