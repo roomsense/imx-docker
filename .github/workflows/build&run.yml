@@ -36,26 +36,36 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Free up disk space
-        run: |
-          echo "Before cleanup:"
-          df -h
-          
-          for pkg in \
-            hhvm php5 php7.4 php8.2 mysql-server-5.7 google-cloud-sdk; do
-            if dpkg -l | grep -q "^ii\s\+$pkg"; then
-              echo "Removing $pkg"
-              sudo apt-get purge -y "$pkg"
-            else
-              echo "$pkg not installed"
-            fi
-          done
+- name: Free up disk space
+  run: |
+    echo "Before cleanup:"
+    df -h
 
-          sudo apt-get autoremove -y
-          sudo apt-get clean
-          
-          echo "After cleanup:"
-          df -h
+    # List of packages to attempt purging
+    packages_to_remove=(
+      hhvm php5 php7.4 php8.2 mysql-server-5.7 google-cloud-sdk
+    )
+
+    for pkg in "${packages_to_remove[@]}"; do
+      # Check if package exists in apt cache
+      if apt-cache show "$pkg" >/dev/null 2>&1; then
+        # Check if package is installed
+        if dpkg -l | grep -q "^ii\s\+$pkg"; then
+          echo "Purging installed package: $pkg"
+          sudo apt-get purge -y "$pkg"
+        else
+          echo "$pkg exists but is not installed"
+        fi
+      else
+        echo "$pkg not found in APT cache, skipping"
+      fi
+    done
+
+    sudo apt-get autoremove -y
+    sudo apt-get clean
+
+    echo "After cleanup:"
+    df -h
 
       - name: Set up Docker
         uses: docker/setup-buildx-action@v3
