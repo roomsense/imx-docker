@@ -19,19 +19,48 @@ on:
       machine:
         description: 'Target machine/board'
         required: true
-        default: 'imx8mp-evk'
+        default: 'imx8mp-lpddr4-evk'
         type: choice
         options:
-          - 'imx8mp-evk'
-          - 'imx8mm-evk'
-          - 'imx8mn-evk'
-          - 'imx8mq-evk'
+          # i.MX 6
+          - 'imx6qpsabresd'
+          - 'imx6ulevk'
+          - 'imx6ulz-14x14-evk'
+          - 'imx6ull14x14evk'
+          - 'imx6ull9x9evk'
+          - 'imx6dlsabresd'
+          - 'imx6qsabresd'
+          - 'imx6solosabresd'
+          - 'imx6sxsabresd'
+          - 'imx6sllevk'
+          # i.MX 7
+          - 'imx7dsabresd'
+          - 'imx7ulpevk'
+          # i.MX 8
+          - 'imx8qmmek'
+          - 'imx8qxpc0mek'
+          - 'imx8mqevk'
+          - 'imx8mm-lpddr4-evk'
+          - 'imx8mm-ddr4-evk'
+          - 'imx8mn-lpddr4-evk'
+          - 'imx8mn-ddr4-evk'
+          - 'imx8mp-lpddr4-evk'
+          - 'imx8mp-ddr4-evk'
+          - 'imx8dxla1-lpddr4-evk'
+          - 'imx8dxlb0-lpddr4-evk'
+          - 'imx8dxlb0-ddr3l-evk'
+          - 'imx8mnddr3levk'
+          - 'imx8ulp-lpddr4-evk'
+          - 'imx8ulp-9x9-lpddr4-evk'
+          # i.MX 9
+          - 'imx91-11x11-lpddr4-evk'
+          - 'imx91-9x9-lpddr4-qsb'
           - 'imx93-11x11-lpddr4x-evk'
           - 'imx93-14x14-lpddr4x-evk'
-          - 'imx8ulp-evk'
-          - 'imx8dx-mek'
-          - 'imx8qm-mek'
-          - 'imx8qxp-mek'
+          - 'imx93-9x9-lpddr4-qsb'
+          - 'imx95-19x19-lpddr5-evk'
+          - 'imx95-15x15-lpddr4x-evk'
+          - 'imx95-19x19-verdin'
 
 jobs:
   validate-inputs:
