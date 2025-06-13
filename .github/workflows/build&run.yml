@@ -136,9 +136,23 @@ jobs:
           echo "Using Dockerfile: ${{ needs.validate-inputs.outputs.ubuntu_version }}"
           echo "IMX Release: ${{ needs.validate-inputs.outputs.imx_release }}"
           
+          # Set build arguments
+          BUILD_USER="yocto"
+          BUILD_UID="1000"
+          BUILD_GID="1000"
+          
+          echo "Build arguments:"
+          echo "  USER: $BUILD_USER"
+          echo "  UID: $BUILD_UID"
+          echo "  GID: $BUILD_GID"
+          echo "  IMX_RELEASE: ${{ needs.validate-inputs.outputs.imx_release }}"
+          
           # Use regular docker build instead of buildx to avoid daemon connection issues
           if ! docker build \
             -f "${{ needs.validate-inputs.outputs.ubuntu_version }}" \
+            --build-arg USER="$BUILD_USER" \
+            --build-arg UID="$BUILD_UID" \
+            --build-arg GID="$BUILD_GID" \
             --build-arg IMX_RELEASE="${{ needs.validate-inputs.outputs.imx_release }}" \
             --progress=plain \
             -t imx-yocto:latest .; then
