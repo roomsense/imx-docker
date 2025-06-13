@@ -169,6 +169,33 @@ jobs:
           echo "✅ Docker image built successfully"
           docker images imx-yocto:latest
           
+        # Add these steps after "Build Docker image" in your workflow
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag and push Docker image
+        run: |
+          # Create tags
+          IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/imx-yocto"
+          IMAGE_TAG="${{ needs.validate-inputs.outputs.imx_release }}-${{ needs.validate-inputs.outputs.ubuntu_version }}"
+          
+          echo "🏷️ Tagging image..."
+          docker tag imx-yocto:latest "$IMAGE_NAME:$IMAGE_TAG"
+          docker tag imx-yocto:latest "$IMAGE_NAME:latest"
+          
+          echo "📤 Pushing image to registry..."
+          docker push "$IMAGE_NAME:$IMAGE_TAG"
+          docker push "$IMAGE_NAME:latest"
+          
+          echo "✅ Image pushed successfully!"
+          echo "📦 Available at: $IMAGE_NAME:$IMAGE_TAG"
+          echo "📦 Available at: $IMAGE_NAME:latest"
+          
       - name: Build completion
         run: |
           echo "🎉 Build completed successfully!"
