@@ -22,7 +22,7 @@ on:
         default: 'imx8mp-lpddr4-evk'
         type: choice
         options:
-          # i.MX 6
+          # === i.MX 6 ===
           - 'imx6qpsabresd'
           - 'imx6ulevk'
           - 'imx6ulz-14x14-evk'
@@ -33,10 +33,10 @@ on:
           - 'imx6solosabresd'
           - 'imx6sxsabresd'
           - 'imx6sllevk'
-          # i.MX 7
+          # === i.MX 7 ===
           - 'imx7dsabresd'
           - 'imx7ulpevk'
-          # i.MX 8
+          # === i.MX 8 ===
           - 'imx8qmmek'
           - 'imx8qxpc0mek'
           - 'imx8mqevk'
@@ -52,7 +52,7 @@ on:
           - 'imx8mnddr3levk'
           - 'imx8ulp-lpddr4-evk'
           - 'imx8ulp-9x9-lpddr4-evk'
-          # i.MX 9
+          # === i.MX 9 ===
           - 'imx91-11x11-lpddr4-evk'
           - 'imx91-9x9-lpddr4-qsb'
           - 'imx93-11x11-lpddr4x-evk'
